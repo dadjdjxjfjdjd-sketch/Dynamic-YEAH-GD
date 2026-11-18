@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.25)
-project(InputAlignExternal VERSION 0.1.0 LANGUAGES CXX)
+project(InputAlignExternal VERSION 0.2.0 LANGUAGES CXX)
 
 option(IAX_BUILD_MOD "Build the Windows Geode bridge" ${WIN32})
 option(IAX_BUILD_TESTS "Build protocol and input-gate tests" ON)
 
-# The unmodified MIT simulator is independent of Geode and can be tested on Linux.
+# The documented MIT simulator fork is independent of Geode and can be tested on Linux.
 add_library(gdsim SHARED worker/branch.cpp)
 target_include_directories(gdsim PRIVATE include)
 target_compile_features(gdsim PRIVATE cxx_std_17)
@@ -22,6 +22,16 @@ if(IAX_BUILD_TESTS)
     target_include_directories(iax_gate_tests PRIVATE include)
     target_compile_features(iax_gate_tests PRIVATE cxx_std_17)
     add_test(NAME gate COMMAND iax_gate_tests)
+    add_executable(iax_mechanics_tests tests/native_mechanics.cpp)
+    target_include_directories(iax_mechanics_tests PRIVATE include)
+    target_compile_features(iax_mechanics_tests PRIVATE cxx_std_17)
+    if(MSVC)
+        target_compile_options(iax_mechanics_tests PRIVATE /fp:strict)
+        set_property(TARGET iax_mechanics_tests PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    else()
+        target_compile_options(iax_mechanics_tests PRIVATE -ffp-contract=off -fno-fast-math)
+    endif()
+    add_test(NAME mechanics COMMAND iax_mechanics_tests)
 endif()
 
 if(IAX_BUILD_MOD)

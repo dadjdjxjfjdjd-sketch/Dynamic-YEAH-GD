@@ -1,6 +1,42 @@
 <!-- coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2a776bf123e33a4c989f45ef27fa594a414ebaed46ffcce799bb82b6b4498a0c -->
+
 # Notas de revision de la alpha
+
+## Estado de 0.2
+
+Las secciones siguientes registran las pasadas historicas de 0.1; sus afirmaciones sobre dependencia sin cambios y triggers desactivados describen aquella version. En 0.2 se habilitan Move/Toggle/Spawn/Stop y se aplican correcciones locales registradas en UPSTREAM.json: primer Stop, alcance de Moves repetidos, caches por ventana con vida de punteros hasta fin de paso, limite de cronogramas, objetos dinamicos consumidos y propiedad de estados. Los cronogramas truncados conservan un indicador incluso cuando una consulta hipotetica limpia sus avisos. Hay regresiones C++ y Python y comparacion del fork con la referencia.
+
+La politica de ramas futuras cambia por la peticion del usuario: un futuro no representable descarta solo la consulta y conserva el estado real, tanto en C++ como en el buscador de referencia. No se eliminan objetos desconocidos ni se declara implementado dual/CBF. La tabla original permanece intacta. La orquestacion PowerShell y el juego real siguen pendientes. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6fff5d37e8e4f6561a6d209fd50df4f57dd6721ea713afa113c367ef245f1c5b -->
+
+La primera pasada de 0.2 termino con **3 hallazgos: 2 major y 1 minor**. Se atendieron los tres: inspeccion variable para mas de 128 activaciones dinamicas con resumen ligero para el predictor; procesamiento de Stop con un cursor por grupo, lineal en segmentos mas Stops, sin recorrer de nuevo segmentos ya detenidos o expirados; y requisito explicito de compilar el adaptador con CMake, sin presentar la autocompilacion del motor base como predictor utilizable. Se acota tambien la cola de eventos Spawn para que una expansion no agote memoria. Hay regresiones para activaciones masivas, Stops antes y despues del inicio, biblioteca antigua y configuracion sin adaptador.
+
+Una prueba adicional de las 19 curvas encontro una diferencia de un ULP en Windows para seno: el CRT estatico y el UCRT del sistema daban resultados distintos. Se conservan comparaciones exactas y el CRT estatico para memoria; las operaciones sin/cos/pow de Windows se resuelven desde el mismo UCRT del sistema que importa Python. El nucleo usa ABI3 y el adaptador IAX version2. Esta correccion busca coherencia con la referencia, no prueba equivalencia con GD.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4f02826da5eaba807e088f1096d5a86a3c76d1173341d542e9aaf4a1aa64a617 -->
+
+La segunda pasada de 0.2 termino con **1 hallazgo major**: faltaba rechazar una fuerza de teletransporte no finita. Se corrigio antes de construir el nivel y se cubrieron tambien los otros parametros numericos propios del portal; no se aplica a la fuerza el limite de coordenadas. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e250f3ad80b88c8a85d18728a46aa7257c7bd79d2356068572ec02cb613f0750 -->
+
+La tercera pasada de 0.2 termino con **0 hallazgos nuevos**. Las tres pasadas de esta version sumaron cuatro hallazgos, todos corregidos. Pasaron 35 pruebas de integracion y 109 casos de referencia tanto en Linux como con la DLL de Windows bajo Wine; dos ejecutables nativos adicionales pasaron en cada plataforma. El paquete CMD completo devolvio una correccion de 400 ticks con presupuesto de 6 ms; la prueba sintetica a 240 Hz dio 224 decisiones a tiempo, ninguna tarde y 224 estados coincidentes. Esto no verifica los FPS ni la fidelidad dentro de Geometry Dash.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+## Historial de 0.1
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 La primera pasada de CodeRabbit termino con **11 hallazgos, 2 avisos sin verificar y 1 archivo sin revisar**. La CLI no identifico ese archivo en el resumen. No se presenta como una revision sin incidencias.
 

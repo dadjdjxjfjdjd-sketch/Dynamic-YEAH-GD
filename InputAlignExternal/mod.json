@@ -5,7 +5,7 @@
   },
   "id": "sketch.inputalign_external",
   "name": "Input Align External",
-  "version": "v0.1.0-alpha.1",
+  "version": "v0.2.0-alpha.1",
   "developer": "dadjdjxjfjdjd-sketch",
   "description": "Experimental input correction with a separate local simulator.",
   "settings": {

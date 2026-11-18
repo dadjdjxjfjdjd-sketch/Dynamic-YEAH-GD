@@ -231,6 +231,7 @@ class Timeline:
         for trig in self.engine.x_triggers:
             heapq.heappush(heap, (self.tick_at(trig.x), seq, trig))
             seq += 1
+        unstopped = {}
         processed = 0
         while heap and processed < MAX_EVENTS:
             tick, _, trig = heapq.heappop(heap)
@@ -244,24 +245,35 @@ class Timeline:
                 self.moves.setdefault(trig.target, []).append(
                     MoveSeg(tick + 1, ticks, trig.dx, trig.dy, trig.easing, trig.rate, trig.lock_x, trig.mod_x))
             elif trig.kind == STOP:
-                for seg in self.moves.get(trig.target, ()):
-                    if seg.start <= tick < seg.start + seg.ticks:
-                        seg.stop = tick
+                segments = self.moves.get(trig.target, ())
+                if not segments:
+                    continue
+                cursor = unstopped.get(trig.target, 0)
+                while cursor < len(segments) and segments[cursor].start <= tick:
+                    seg = segments[cursor]
+                    cursor += 1
+                    if tick < seg.start + seg.ticks:
+                        seg.stop = min(seg.stop, tick)
+                unstopped[trig.target] = cursor
             elif trig.kind == SPAWN:
                 at = tick + round(trig.delay * TICKS_PER_SECOND)
                 for child in self.engine.by_group.get(trig.target, ()):
+                    if len(heap) >= MAX_EVENTS:
+                        self.engine.approximations["spawn loop cut"] = 1
+                        return
                     heapq.heappush(heap, (at, seq, child))
                     seq += 1
-        if processed >= MAX_EVENTS:
+        if heap:
             self.engine.approximations["spawn loop cut"] = 1
 
     def objects_near(self, tick: int, x0: float, x1: float) -> list[PhysObject]:
-        cached = self.cache.get(tick)
+        key = (tick, x0, x1)
+        cached = self.cache.get(key)
         if cached is None:
             cached = self._dynamic_at(tick, x0 - 120.0, x1 + 120.0)
             if len(self.cache) > 64:
                 self.cache.clear()
-            self.cache[tick] = cached
+            self.cache[key] = cached
         return [o for o in cached if o.x0 <= x1 and o.x1 >= x0]
 
     def _dynamic_at(self, tick: int, x0: float, x1: float) -> list[PhysObject]:
@@ -313,7 +325,7 @@ class TriggerEngine:
         for t in self.triggers:
             if t.kind == MOVE:
                 reach[t.target] = reach.get(t.target, 0.0) + abs(t.dx)
-                if t.lock_x:
+                if t.lock_x or t.spawn_triggered:
                     unbounded.add(t.target)
         sets: dict[tuple[int, ...], GroupSet] = {}
         for o in self.dynamic_objects:

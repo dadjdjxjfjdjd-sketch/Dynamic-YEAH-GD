@@ -5,6 +5,7 @@ from pathlib import Path
 import base64
 import ctypes
 import math
+import os
 import sys
 import time
 import zlib
@@ -22,11 +23,14 @@ class UnsupportedLevel(ValueError):
 
 
 VISUAL_TRIGGER_IDS = frozenset({29, 30, 105, 899, 900, 915, 1006, 1007})
+SUPPORTED_TRIGGER_IDS = VISUAL_TRIGGER_IDS | {901, 1049, 1268, 1616}
 MAX_INDEX_ENTRIES = 200000
 MAX_COORDINATE = 10_000_000
 
 
 def load_simulator(text: str):
+    if not os.environ.get('GDGEN_SIM_LIB'):
+        raise RuntimeError('Compila el proyecto con CMake y define GDGEN_SIM_LIB; la consola necesita su DLL completa')
     maximum = 32 * 1024 * 1024
     if len(text) > maximum:
         raise UnsupportedLevel('Nivel demasiado grande')
@@ -54,21 +58,32 @@ def load_simulator(text: str):
         info = table.get(ident)
         if info is None:
             raise UnsupportedLevel(f'Objeto desconocido {ident}: correccion suspendida')
-        # Only purely visual triggers are safe in a simulator with no live event engine.
-        if ident in DYNAMIC_TRIGGER_IDS or (info.category == 'trigger' and ident not in VISUAL_TRIGGER_IDS):
+        # Accept only triggers implemented by the external event engine.
+        if ident in (DYNAMIC_TRIGGER_IDS - SUPPORTED_TRIGGER_IDS) or (info.category == 'trigger' and ident not in SUPPORTED_TRIGGER_IDS):
             raise UnsupportedLevel(f'Trigger dinamico {ident}: correccion suspendida')
-        if info.type in {'DualPortal', 'SoloPortal', 'TeleportPortal', 'TeleportOrb', 'CustomRing',
-                         'NormalMirrorPortal', 'InverseMirrorPortal'} or info.category == 'start_pos':
+        if info.type in {'DualPortal', 'SoloPortal', 'TeleportOrb', 'CustomRing',
+                         'NormalMirrorPortal', 'InverseMirrorPortal'}:
             raise UnsupportedLevel(f'{info.type}: correccion suspendida')
         # Spawn/touch triggers, object links and gameplay rotation can alter static geometry.
-        if obj.get('11') == '1' or obj.get('62') == '1' or obj.get('171') == '1':
+        if obj.get('11') == '1' or obj.get('171') == '1':
             raise UnsupportedLevel('Trigger activable: correccion suspendida')
         try:
-            for key in ('2', '3', '6', '32', '128', '129'):
+            for key in ('2', '3', '6', '32', '128', '129', '10', '28', '29', '30', '51', '54', '63', '85', '143'):
                 if key in obj:
                     value = float(obj[key])
-                    if not math.isfinite(value) or (key in ('2', '3') and abs(value) > MAX_COORDINATE):
+                    if not math.isfinite(value) or (key not in ('32', '128', '129') and abs(value) > MAX_COORDINATE):
                         raise UnsupportedLevel('Geometria no finita o fuera de limites')
+            if info.type == 'TeleportPortal':
+                # Force, limits and multiplier are not coordinates: require finite values separately.
+                for key in ('346', '348', '349', '350', '354'):
+                    if key in obj and not math.isfinite(float(obj[key])):
+                        raise UnsupportedLevel('Parametro de teletransporte no finito')
+            if ident == 901:
+                duration, easing, rate = float(obj.get('10', 0)), float(obj.get('30', 0)), float(obj.get('85', 2))
+                if not (0 <= duration <= 3600 and easing.is_integer() and 0 <= easing <= 18 and .01 <= rate <= 20):
+                    raise UnsupportedLevel('Parametros Move fuera del modelo')
+            if ident == 1268 and not 0 <= float(obj.get('63', 0)) <= 3600:
+                raise UnsupportedLevel('Retardo Spawn fuera del modelo')
             if info.category in COLLIDABLE and obj.get('121') != '1':
                 geometry = make_phys_object(0, obj, info)
                 bounds = (geometry.x, geometry.y, geometry.x0, geometry.y0, geometry.x1, geometry.y1)
@@ -79,7 +94,9 @@ def load_simulator(text: str):
                     raise UnsupportedLevel('Indice de colisiones demasiado grande')
         except (ValueError, OverflowError) as error:
             raise UnsupportedLevel(f'Geometria no compatible: {error}') from error
-    level = build_level(header, objects, triggers=False)
+    level = build_level(header, objects, triggers=True)
+    if level.engine.approximations:
+        raise UnsupportedLevel('Mecanica de trigger sin representar: ' + ', '.join(level.engine.approximations))
     if level.dynamic_skipped or level.start_dual:
         raise UnsupportedLevel('Geometria no representable')
     return FastSimulator(level)
@@ -92,10 +109,17 @@ class Predictor:
         self.tick = 0
         self.session = None
         self.rejected = False
-        self.native = getattr(sim._lib, 'iax_predict', None)
+        version = getattr(sim._lib, 'iax_adapter_version', None)
+        if version is None or version() != 2:
+            raise RuntimeError('Falta adaptador v2: compila worker/branch.cpp con CMake o copia completa InputAlignWorker')
+        self.native = getattr(sim._lib, 'iax_predict_v2', None)
+        self.clear_preview = getattr(sim._lib, 'iax_clear_preview_notes', None)
+        if self.native is None or self.clear_preview is None:
+            raise RuntimeError('DLL incompleta: copia completa la nueva carpeta InputAlignWorker')
+        self.clear_preview.argtypes, self.clear_preview.restype = [ctypes.c_void_p], None
         if self.native:
             self.native.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int,
-                                    ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
+                                    ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
             self.native.restype = ctypes.c_int
 
     def synchronize(self, header, actual, history, count):
@@ -116,8 +140,12 @@ class Predictor:
             held = bool(history >> (header.tick - self.tick - 1) & 1)
             self.state = self.sim.step(self.state, held)
             self.tick += 1
-        view = self.sim.view(self.state)
-        if self.sim.unsupported or view['dead'] or not matches(actual, state_tuple(view)):
+        view = self.sim.view(self.state, include_lists=False)
+        expected = state_tuple(view)
+        # A button may change between physics updates; history applies that edge on the next step.
+        physical_actual = (*actual[:4], actual[4] & ~HELD)
+        physical_expected = (*expected[:4], expected[4] & ~HELD)
+        if self.sim.unsupported or view['dead'] or not matches(physical_actual, physical_expected):
             self.rejected = True
             raise ValueError('Fisica no coincide; correccion suspendida hasta reiniciar')
         return view
@@ -128,13 +156,22 @@ class Predictor:
             return None
         if self.native and clock is time.perf_counter:
             buffer = ctypes.create_string_buffer(HEADER.size + DECISION_BODY.size)
-            result = self.native(self.sim._h, self.state._h, horizon, budget, 4, options, buffer)
+            result = self.native(self.sim._h, self.state._h, horizon, budget, 4, options, int(bool(actual[4] & HELD)), buffer)
             if result == 1:
                 return header.pack(DECISION, header.tick + 4) + buffer.raw[HEADER.size:]
             if result in (0, 2):
                 return None
+            if result == 3:
+                return None  # Unrepresentable future: keep real-state synchronization alive.
             self.rejected = True
-            raise ValueError('Simulacion no compatible; reinicia el intento')
+            raise ValueError('Error de simulacion; reinicia el intento')
+        try:
+            return self._reference_forecast(header, actual, horizon, budget, options, clock)
+        finally:
+            # synchronize has already rejected real-state notes; remaining notes are hypothetical.
+            self.clear_preview(self.sim._h)
+
+    def _reference_forecast(self, header, actual, horizon, budget, options, clock):
         deadline = clock() + budget / 1_000_000
         # Four ticks of lead gives the local worker time to answer without holding the game thread.
         lead = 4

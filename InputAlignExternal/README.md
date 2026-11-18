@@ -1,10 +1,36 @@
 <!-- coderabbit-ai-generated:v1 -->
 
-# Input Align External — alpha 0.1.0
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d21b3b9c76524e802d3788d930e331e8781902c777d27f083147809e070f95d8 -->
+
+# Input Align External — alpha 0.2.0
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Mod nuevo y experimental para **Windows x64, Geometry Dash 2.2081 y Geode 5.11.2**. Se distribuye con otra identidad: `sketch.inputalign_external`. No modifica la DLL del InputAlign original ni utiliza su codigo fuente.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8c63a8d7edd6004917a5212d4476ab519efdd0d77830ad49e877a8194c44b2d7 -->
+
+## Cambios de 0.2
+
+Se habilitan nave y dash en el puente, ademas de los otros siete modos; hay casos sinteticos de correccion para los ocho vehiculos. El motor externo admite Move, Toggle, Spawn y Stop en sus variantes representadas, asi como teletransporte vertical por portal. Se corrigieron la repeticion de Move por Spawn, el primer Stop, las consultas de colision de ramas diferentes, los objetos dinamicos ya consumidos y la deteccion persistente de un cronograma truncado. El empaquetador verifica los hashes del fork.
+
+Una pulsacion entre pasos fisicos ya no se confunde con divergencia: la entrada actual se aplica en la siguiente simulacion. Una mecanica encontrada solo en una rama hipotetica cancela esa consulta y conserva la sincronizacion del estado real. Esto cambia intencionalmente la politica de 0.1, que bloqueaba el intento. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:62297bc4035b3bee467de6ece59b243e228e02b375c04cc9e7cc7f7b9df9315b -->
+
+La biblioteca y los scripts usan el adaptador version 2 y el nucleo ABI3; hay que reemplazar **toda** la carpeta de consola al actualizar. La inspeccion admite mas de 128 objetos dinamicos consumidos y el procesamiento de Stop no vuelve a recorrer segmentos ya terminados. En Windows se usa el UCRT del sistema para sin/cos/pow, manteniendo la misma referencia matematica que Python.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+**Esta version aun no cumple equivalencia total con InputAlign ni garantiza correccion universal.** Tener una tabla de objetos y ocho modos no implementa todos los triggers, dual ni CBF. Las pruebas sinteticas no prueban la fidelidad frente al juego ni los FPS.
+
 ## Que hace
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated:v1 -->
 
@@ -40,11 +66,23 @@ La cola esta limitada a 16 archivos pendientes y cada intento a 100000 entradas;
 Se conservan las **38 claves, tipos, rangos y valores predeterminados** del paquete del repositorio, pero esto no es una reproduccion completa de su comportamiento binario:
 
 - `cbf-sync` se conserva como opcion de compatibilidad **reservada**. No implementa sincronizacion CBF. Con CBF detectado, pasos parciales o un paso fisico distinto de 1/240 s, los clics pasan directamente independientemente del valor de esa opcion.
-- Dual, dos jugadores, platformer, ship, start positions, checkpoints cargados, teletransporte, portales espejo y geometria controlada por triggers no compatibles no reciben correccion. Un reinicio desde el principio permite volver a sincronizar. <!-- coderabbit-ai-generated:v1 -->
+- <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a6f21f1381f8b235d45423c0604117961e39c2bfe04f7fa7d3299038a4fc823e -->
+
+Dual, dos jugadores, platformer, start positions activos, checkpoints cargados, teleport orbs con destino de grupo, portales espejo y geometria controlada por triggers no compatibles no reciben correccion. Los start positions inactivos ya no rechazan un nivel normal; si el estado inicial real no coincide, la entrada sigue directa.
+
+<!-- /coderabbit-ai-generated:v1 --> Un reinicio desde el principio permite volver a sincronizar. <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:a77a2cf903982d458ae4fea554bb5f87293c7ed89825b76f759a0a88cafe8ebf -->
 
-Se admiten solo los triggers visuales enumerados en `worker/predictor.py`; un objeto desconocido suspende la prediccion del nivel completo. Una mecanica no representable detectada en el estado real o en una rama futura suspende el intento por precaucion. El cargador limita posiciones y bordes a 10000000 unidades, el nivel a 250000 objetos y el indice a 200000 entradas de buckets; rechaza geometria no finita antes de reservar ese indice.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:0b743438ef04fa98032f249747546bfb1d7db40a07fcf9836af4398b46b91a6a -->
+
+Se admiten los triggers visuales enumerados y Move/Toggle/Spawn/Stop con parametros representables. Touch triggers, Move lock-Y/to-target, Rotate, Follow, Scale, area y keyframes siguen sin implementacion fiel. Un objeto desconocido rechaza la prediccion del nivel completo; los movimientos y clics del juego permanecen directos. Una rama futura no representable no deja bloqueado el intento real. Si esa mecanica afecta el estado real, el modelo deja de corregir hasta reiniciar.
+
+<!-- /coderabbit-ai-generated:v1 --> El cargador limita posiciones y bordes a 10000000 unidades, el nivel a 250000 objetos y el indice a 200000 entradas de buckets; rechaza geometria no finita antes de reservar ese indice.
 
 <!-- /coderabbit-ai-generated:v1 -->
 - La reconstruccion debe coincidir desde el estado inicial; no inventa un estado incompleto copiando solo posicion y velocidad. Si faltan mas de 64 ticks de historial o el modelo diverge, se suspende hasta el siguiente intento.
@@ -135,7 +173,13 @@ python scripts/package-windows.py --build build-windows --python-runtime python-
 
 ## Procedencia y licencias
 
-Puente, protocolo y predictor: MIT, copyright 2026 dadjdjxjfjdjd-sketch. Simulador independiente: [kholkink/gd-levelgen](https://github.com/kholkink/gd-levelgen/tree/9496709eadd22fc3a130f89043169c17da4d5b9c), MIT, revision `9496709eadd22fc3a130f89043169c17da4d5b9c`; se incluyen su licencia y lista de archivos copiados sin cambios en `worker/vendor/`. El autor original atribuye el simulador a GD 2.2081 y documenta limitaciones; esa atribucion no equivale a validacion de este mod en el juego.
+Puente, protocolo y predictor: MIT, copyright 2026 dadjdjxjfjdjd-sketch. Simulador independiente: [kholkink/gd-levelgen](https://github.com/kholkink/gd-levelgen/tree/9496709eadd22fc3a130f89043169c17da4d5b9c), MIT, revision `9496709eadd22fc3a130f89043169c17da4d5b9c`; <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:567d2a75d4dd5dcccecb2a194f6268025c666d04ba892ce4793535a03344e8bc -->
+
+se incluyen su licencia y el registro del fork en `worker/vendor/UPSTREAM.json`, con hashes originales y modificados. La version 0.2 aplica correcciones locales comprobables al motor de triggers y a la propiedad de estados; ya no se presenta como una copia sin cambios.
+
+<!-- /coderabbit-ai-generated:v1 --> El autor original atribuye el simulador a GD 2.2081 y documenta limitaciones; esa atribucion no equivale a validacion de este mod en el juego.
 
 El paquete de consola incluye Python bajo su licencia, conservada en `InputAlignWorker/LICENSE.txt`. `build-provenance.json` identifica procedencia, hashes y el estado de prueba del paquete. <!-- coderabbit-ai-generated:v1 -->
 

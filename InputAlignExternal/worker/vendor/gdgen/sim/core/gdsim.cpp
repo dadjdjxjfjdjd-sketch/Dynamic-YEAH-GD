@@ -18,6 +18,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#ifdef _WIN32
+#include "../../../../WindowsMath.hpp"
+#endif
 #include <map>
 #include <queue>
 #include <string>
@@ -27,6 +30,9 @@
 #include <vector>
 
 namespace gd {
+#ifndef _WIN32
+namespace platform_math { using std::sin; using std::cos; using std::pow; }
+#endif
 
 // ------------------------------------------------------------------------------------------------ constants
 constexpr double STEP_SECONDS = 1.0 / 240.0;
@@ -177,21 +183,21 @@ double ease(int kind, double rate, double t) {
     rate = rate > 0 ? rate : 2.0;
     if (kind == 1) {
         t *= 2;
-        return t < 1 ? 0.5 * std::pow(t, rate) : 1.0 - 0.5 * std::pow(2.0 - t, rate);
+        return t < 1 ? 0.5 * platform_math::pow(t, rate) : 1.0 - 0.5 * platform_math::pow(2.0 - t, rate);
     }
-    if (kind == 2) return std::pow(t, rate);
-    if (kind == 3) return std::pow(t, 1.0 / rate);
+    if (kind == 2) return platform_math::pow(t, rate);
+    if (kind == 3) return platform_math::pow(t, 1.0 / rate);
     if (kind == 4 || kind == 5 || kind == 6) {
         double period = rate;
         double s = period / 4.0;
         if (kind == 5) {
             t -= 1;
-            return -(std::pow(2.0, 10 * t)) * std::sin((t - s) * 2 * PI / period);
+            return -(platform_math::pow(2.0, 10 * t)) * platform_math::sin((t - s) * 2 * PI / period);
         }
-        if (kind == 6) return std::pow(2.0, -10 * t) * std::sin((t - s) * 2 * PI / period) + 1;
+        if (kind == 6) return platform_math::pow(2.0, -10 * t) * platform_math::sin((t - s) * 2 * PI / period) + 1;
         t = t * 2 - 1;
-        if (t < 0) return -0.5 * std::pow(2.0, 10 * t) * std::sin((t - s) * 2 * PI / period);
-        return std::pow(2.0, -10 * t) * std::sin((t - s) * 2 * PI / period) * 0.5 + 1;
+        if (t < 0) return -0.5 * platform_math::pow(2.0, 10 * t) * platform_math::sin((t - s) * 2 * PI / period);
+        return platform_math::pow(2.0, -10 * t) * platform_math::sin((t - s) * 2 * PI / period) * 0.5 + 1;
     }
     if (kind == 7 || kind == 8 || kind == 9) {
         if (kind == 8) return 1 - bounce(1 - t);
@@ -200,13 +206,13 @@ double ease(int kind, double rate, double t) {
     }
     if (kind == 10) {
         t *= 2;
-        return t < 1 ? 0.5 * std::pow(2.0, 10 * (t - 1)) : 0.5 * (2 - std::pow(2.0, -10 * (t - 1)));
+        return t < 1 ? 0.5 * platform_math::pow(2.0, 10 * (t - 1)) : 0.5 * (2 - platform_math::pow(2.0, -10 * (t - 1)));
     }
-    if (kind == 11) return std::pow(2.0, 10 * (t - 1)) - 0.001;
-    if (kind == 12) return 1 - std::pow(2.0, -10 * t);
-    if (kind == 13) return -0.5 * (std::cos(PI * t) - 1);
-    if (kind == 14) return 1 - std::cos(t * PI / 2);
-    if (kind == 15) return std::sin(t * PI / 2);
+    if (kind == 11) return platform_math::pow(2.0, 10 * (t - 1)) - 0.001;
+    if (kind == 12) return 1 - platform_math::pow(2.0, -10 * t);
+    if (kind == 13) return -0.5 * (platform_math::cos(PI * t) - 1);
+    if (kind == 14) return 1 - platform_math::cos(t * PI / 2);
+    if (kind == 15) return platform_math::sin(t * PI / 2);
     if (kind == 16 || kind == 17 || kind == 18) {
         double o = 1.70158;
         if (kind == 17) return t * t * ((o + 1) * t - o);
@@ -221,11 +227,12 @@ double ease(int kind, double rate, double t) {
 }
 
 struct Timeline {
+    bool truncated = false;
     std::vector<Break> breaks;
     std::vector<long long> break_ticks;
     std::unordered_map<int, std::vector<std::pair<long long, bool>>> enabled;
     std::unordered_map<int, std::vector<MoveSeg>> moves;
-    std::unordered_map<long long, std::vector<Obj>> cache;  // tick -> dynamic objects (Timeline.cache)
+    std::map<std::tuple<long long, double, double>, std::vector<Obj>> cache;  // tick -> dynamic objects (Timeline.cache)
 
     double x_at(long long tick) const {
         long long i = (long long)(std::upper_bound(break_ticks.begin(), break_ticks.end(), tick) - break_ticks.begin()) - 1;
@@ -367,6 +374,7 @@ struct Level {
         std::priority_queue<Ev, std::vector<Ev>, std::greater<Ev>> heap;
         long long seq = 0;
         for (int ti : x_triggers) heap.emplace(tl.tick_at(triggers[ti].x), seq++, ti);
+        std::unordered_map<int, size_t> unstopped;
         int processed = 0;
         while (!heap.empty() && processed < MAX_EVENTS) {
             Ev ev = heap.top();
@@ -385,23 +393,36 @@ struct Level {
                 tl.moves[trig.target].push_back({tick + 1, ticks, trig.dx, trig.dy, trig.easing, trig.rate, trig.lock_x,
                                                  trig.mod_x});
             } else if (trig.kind == STOP) {
-                auto it = tl.moves.find(trig.target);
-                if (it != tl.moves.end())
-                    for (MoveSeg& seg : it->second)
-                        if (seg.start <= tick && tick < seg.start + seg.ticks) seg.stop = tick;
+                auto found = tl.moves.find(trig.target);
+                if (found == tl.moves.end()) continue;
+                auto& moves = found->second;
+                auto& next = unstopped[trig.target];
+                // Move starts are ordered. Each segment is inspected at most once across all Stops.
+                while (next < moves.size() && moves[next].start <= tick) {
+                    auto& seg = moves[next++];
+                    if (tick < seg.start + seg.ticks) seg.stop = std::min(seg.stop, tick);
+                }
             } else if (trig.kind == SPAWN) {
                 long long at = tick + (long long)py_round(trig.delay * TICKS_PER_SECOND);
                 auto it = by_group.find(trig.target);
                 if (it != by_group.end())
-                    for (int child : it->second) heap.emplace(at, seq++, child);
+                    for (int child : it->second) {
+                        if (heap.size() >= MAX_EVENTS) {
+                            tl.truncated = true; note("spawn loop cut", 0.0); return;
+                        }
+                        heap.emplace(at, seq++, child);
+                    }
             }
         }
+        if (!heap.empty()) { tl.truncated = true; note("spawn loop cut", 0.0); }
     }
 
     // Timeline.objects_near / _dynamic_at, including the per-tick cache filled by the first query of a tick.
     void dynamic_near(int speed_log, long long tick, double x0, double x1, std::vector<const Obj*>& out) {
         Timeline* tl = timeline(speed_log);
-        auto it = tl->cache.find(tick);
+        if (tl->truncated) note("spawn loop cut", 0.0);
+        auto key = std::make_tuple(tick, x0, x1);
+        auto it = tl->cache.find(key);
         if (it == tl->cache.end()) {
             double wx0 = x0 - 120.0, wx1 = x1 + 120.0;
             std::vector<Obj> list;
@@ -429,8 +450,7 @@ struct Level {
                     list.push_back(m);
                 }
             }
-            if (tl->cache.size() > 64) tl->cache.clear();
-            it = tl->cache.emplace(tick, std::move(list)).first;
+            it = tl->cache.emplace(key, std::move(list)).first;
         }
         for (const Obj& o : it->second)
             if (o.x0 <= x1 && o.x1 >= x0) out.push_back(&o);
@@ -779,6 +799,14 @@ struct Simulator {
     }
 
     Player step(const Player& state, bool hold) {
+        // Evict only between complete steps: collision queries hold pointers into these vectors.
+        if (L.timelines.size() > 64) {
+            for (auto& item : L.timelines) delete item.second;
+            L.timelines.clear();
+        } else {
+            for (auto& item : L.timelines)
+                if (item.second->cache.size() > 64) item.second->cache.clear();
+        }
         Player p = state;
         p.time += STEP_SECONDS;
         if (p.has_pending_speed) {
@@ -803,7 +831,7 @@ struct Simulator {
             double cutoff = p.x - 120.0;
             std::vector<int> keep;
             for (int i : p.activated)
-                if (L.objects[i].x1 >= cutoff) keep.push_back(i);
+                if (!L.objects[i].indexed || L.objects[i].x1 >= cutoff) keep.push_back(i);
             p.activated.swap(keep);
         }
         return p;
@@ -1086,7 +1114,7 @@ struct Simulator {
             double length = std::fabs(p.y_vel) * o.t350;
             if (o.t349 > 0) length = std::min(length, o.t349);
             if (o.t348 > 0) length = std::max(length, o.t348);
-            p.y_vel = length * std::sin(angle);
+            p.y_vel = length * platform_math::sin(angle);
             p.outside_clamp = true;
         } else if (o.t345) {
             double force = o.t346;
@@ -1096,7 +1124,7 @@ struct Simulator {
                 p.y_vel = 0.0;
             } else {
                 p.outside_clamp = true;
-                p.y_vel = force * std::sin(angle) + (additive ? p.y_vel : 0.0);
+                p.y_vel = force * platform_math::sin(angle) + (additive ? p.y_vel : 0.0);
             }
         }
     }
@@ -1109,7 +1137,7 @@ struct Simulator {
         if (std::fabs(t) > 90.0) t = wrap180((t > 0 ? 180.0 : -180.0) - t);
         t = std::max(-70.0, std::min(70.0, t));
         double rad = t * DEG2RAD;
-        p.dash_slope = std::sin(rad) / std::fabs(std::cos(rad));
+        p.dash_slope = platform_math::sin(rad) / std::fabs(platform_math::cos(rad));
     }
 
     void consume(Player& p, const Obj& o) {
@@ -1292,13 +1320,13 @@ struct Simulator {
         double px = p.x, py = p.y;
         double tol = descending ? (p.was_on_slope ? 4.0 : 1.0) : 0.0;
         if (p.was_on_slope) {
-            double cos_a = std::cos(p.slope_angle);
+            double cos_a = platform_math::cos(p.slope_angle);
             double probe = p.upside_down ? py + (h / 2) / cos_a + tol : py - (h / 2) / cos_a - tol;
             if ((s > 0 && probe > o.y1) || (s < 0 && probe < o.y0)) return;
         } else if (!(r.x0 <= o.x1 && o.x0 <= r.x1 && r.y0 <= o.y1 - 1 && o.y0 + 1 <= r.y1)) {
             return;
         }
-        double hc = (h / std::cos(theta)) / 2;
+        double hc = (h / platform_math::cos(theta)) / 2;
         bool trans = p.was_on_slope && p.slope_uid != o.index && p.slope_ceil != ceil;
         double lift = trans ? 20 * p.vehicle_size() : 0.0;
         double ys = slope_y(o, px);
@@ -1706,7 +1734,7 @@ struct SearchOut {
 
 extern "C" {
 
-int gd_abi_version() { return 2; }
+int gd_abi_version() { return 3; }
 int gd_obj_rec_size() { return (int)sizeof(ObjRec); }
 int gd_state_view_size() { return (int)sizeof(StateView); }
 
@@ -1759,7 +1787,7 @@ void* gd_step(void* lvl, void* st, int hold) {
 
 void gd_state_free(void* st) { delete (Player*)st; }
 
-int gd_state_view(void* lvl, void* st, StateView* v) {
+int gd_state_view(void* lvl, void* st, StateView* v, int include_lists) {
     const Player& p = *(Player*)st;
     std::memset(v, 0, sizeof(StateView));
     v->x = p.x; v->y = p.y; v->prev_x = p.prev_x; v->prev_y = p.prev_y; v->y_vel = p.y_vel; v->speed = p.speed;
@@ -1778,6 +1806,7 @@ int gd_state_view(void* lvl, void* st, StateView* v) {
     v->slope_enter_time = p.slope_enter_time; v->on_slope = p.on_slope; v->was_on_slope = p.was_on_slope;
     v->slope_ceil = p.slope_ceil; v->slope_uid = p.slope_uid; v->slope_desc = p.slope_desc;
     v->slope_clamped = p.slope_clamped;
+    if (!include_lists) return 0;
     v->n_touched = (int32_t)std::min<size_t>(p.touched_rings.size(), 32);
     for (int i = 0; i < v->n_touched; ++i) v->touched[i] = p.touched_rings[i];
     v->n_activated = (int32_t)std::min<size_t>(p.activated.size(), 128);
@@ -1790,6 +1819,30 @@ int gd_state_view(void* lvl, void* st, StateView* v) {
         v->speed_log[3 * i + 2] = log[i].v;
     }
     return (p.touched_rings.size() > 32 || p.activated.size() > 128 || log.size() > 64) ? 1 : 0;
+}
+
+// Variable-size inspection keeps every consumed dynamic ID without a fixed list ceiling.
+int gd_state_list(void* lvl, void* st, int kind, void* buffer, int capacity) {
+    auto& p = *static_cast<Player*>(st);
+    if (kind == 0 || kind == 1) {
+        auto const& values = kind == 0 ? p.touched_rings : p.activated;
+        int count = static_cast<int>(values.size());
+        if (buffer && count > 0 && capacity >= count) std::memcpy(buffer, values.data(), count * sizeof(int32_t));
+        return count;
+    }
+    if (kind == 2) {
+        auto values = static_cast<Level*>(lvl)->logs.materialize(p.speed_log);
+        int count = static_cast<int>(values.size());
+        if (buffer && capacity >= count) {
+            auto out = static_cast<double*>(buffer);
+            for (int i = 0; i < count; ++i) {
+                out[3*i] = static_cast<double>(values[i].tick);
+                out[3*i+1] = values[i].x; out[3*i+2] = values[i].v;
+            }
+        }
+        return count;
+    }
+    return -1;
 }
 
 int gd_find_path(void* lvl, double goal_x, int max_ticks, int input_period, int max_frontier, double time_limit,

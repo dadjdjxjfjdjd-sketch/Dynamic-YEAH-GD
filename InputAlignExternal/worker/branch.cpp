@@ -1,5 +1,5 @@
 // Copyright (c) 2026 dadjdjxjfjdjd-sketch. SPDX-License-Identifier: MIT
-// Compile the pinned engine unchanged; the task-owned adapter keeps the search loop out of Python.
+// Compile the documented simulator fork; the task-owned adapter keeps the search loop out of Python.
 #include "vendor/gdgen/sim/core/gdsim.cpp"
 #include "Protocol.hpp"
 
@@ -15,17 +15,29 @@ iax::State wire(gd::Player const& p) {
 }
 
 // Return 1 only for a fully checked correction; 0=direct, 2=deadline, 3=unsupported, -1=error.
-extern "C" int iax_predict(void* level, void* state, int horizon, int budgetUs, int lead, int collect,
+extern "C" void iax_clear_preview_notes(void* level) noexcept {
+    if (level) static_cast<gd::Level*>(level)->unsupported.clear();
+}
+
+extern "C" int iax_adapter_version() noexcept { return 2; }
+
+extern "C" int iax_predict_v2(void* level, void* state, int horizon, int budgetUs, int lead, int collect, int currentHeld,
                            iax::Decision* output) noexcept {
     if (!level || !state || !output || horizon < 1 || horizon > 400 || budgetUs < 500 || budgetUs > 20000
-        || lead < 1 || lead > 16 || collect < 0 || collect > 1) return -1;
+        || lead < 1 || lead > 16 || collect < 0 || collect > 1 || currentHeld < 0 || currentHeld > 1) return -1;
     try {
         using Timer = std::chrono::steady_clock;
         auto deadline = Timer::now() + std::chrono::microseconds(budgetUs);
         auto& layout = *static_cast<gd::Level*>(level);
+        // Notes from hypothetical futures must not poison the real reconstructed state.
+        struct NotesScope {
+            gd::Level& layout;
+            std::map<std::string, double> saved;
+            ~NotesScope() { layout.unsupported.swap(saved); }
+        } notes{layout, layout.unsupported};
         gd::Simulator simulator(layout);
         auto base = *static_cast<gd::Player*>(state);
-        bool held = base.held;
+        bool held = currentHeld != 0;
         for (int i = 0; i < lead; ++i) base = simulator.step(base, held);
         if (!layout.unsupported.empty()) return 3;
         if (base.dead) return 0;

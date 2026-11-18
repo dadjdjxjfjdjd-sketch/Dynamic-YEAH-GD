@@ -146,7 +146,7 @@ class PredictorTests(unittest.TestCase):
         self.assertIsNone(self.predictor.forecast(self.header, actual, 0, 0, 0, 6000, 0))
 
     def test_unsupported_geometry_is_not_dropped(self):
-        for raw in ['kA8,1;', 'kA10,1;', 'kA2,0;1,999999,2,100,3,15;', 'kA2,0;1,901,2,100,3,15;',
+        for raw in ['kA8,1;', 'kA10,1;', 'kA2,0;1,999999,2,100,3,15;', 'kA2,0;1,1346,2,100,3,15;',
                     'kA2,0;1,286,2,100,3,15;']:
             with self.assertRaises(UnsupportedLevel): load_simulator(raw)
 

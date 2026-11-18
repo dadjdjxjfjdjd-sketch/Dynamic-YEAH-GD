@@ -16,6 +16,9 @@ def package(build: Path, runtime: Path, output: Path):
     for name in upstream['files']:
         if not (ROOT / 'worker/vendor' / name).is_file():
             raise ValueError(f'Missing pinned simulator file: {name}')
+        digest = upstream.get('fileSha256', {}).get(name)
+        if digest and hashlib.sha256((ROOT / 'worker/vendor' / name).read_bytes()).hexdigest() != digest:
+            raise ValueError(f'Simulator file hash mismatch: {name}')
     mod = list(build.glob('*.geode'))
     native = [build / 'gdsim.dll', build / 'Release/gdsim.dll']
     native = next((p for p in native if p.is_file()), None)

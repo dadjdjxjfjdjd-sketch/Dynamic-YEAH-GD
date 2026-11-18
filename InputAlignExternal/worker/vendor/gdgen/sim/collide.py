@@ -217,7 +217,7 @@ class Simulator:
         if p.activated:
             cutoff = p.x - 120.0
             objs = self.level.objects
-            p.activated = frozenset(i for i in p.activated if objs[i].x1 >= cutoff)
+            p.activated = frozenset(i for i in p.activated if objs[i].dynamic or objs[i].x1 >= cutoff)
         return p
 
     def _push_button(self, p: Player, press_used: set[int]) -> None:

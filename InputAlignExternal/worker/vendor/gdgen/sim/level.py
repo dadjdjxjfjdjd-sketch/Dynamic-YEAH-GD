@@ -189,8 +189,8 @@ def dynamic_groups(objects: list[dict[str, str]], trigger_ids: frozenset = DYNAM
     for obj in objects:
         try:
             if int(obj.get(KEY_ID, "0")) in trigger_ids:
-                groups.add(int(obj.get(KEY_TARGET_GROUP, "0")))
-        except ValueError:
+                groups.add(int(float(obj.get(KEY_TARGET_GROUP, "0"))))
+        except (ValueError, OverflowError):
             continue
     groups.discard(0)
     return groups

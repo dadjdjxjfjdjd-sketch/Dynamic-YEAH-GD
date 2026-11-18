@@ -103,8 +103,8 @@ bool Runtime::connected() const {
 bool Runtime::eligible() const {
     auto player = owner->m_player1;
     return settings.enabled && settings.invisible && connected() && m_predictionReady && !conflict
-        && player && !player->m_isDead && !player->m_isShip && !owner->m_isPlatformer
-        && !owner->m_gameState.m_isDualMode && !player->m_isDashing
+        && player && !player->m_isDead && !owner->m_isPlatformer
+        && !owner->m_gameState.m_isDualMode
         && (!settings.practiceOnly || owner->m_isPracticeMode)
         && !(owner->m_isPracticeMode && settings.noclip)
         && !cbfPresent && fullTick && m_physics.ready()

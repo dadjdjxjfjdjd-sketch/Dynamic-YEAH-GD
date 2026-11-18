@@ -4,6 +4,10 @@
     res = sim.find_path(max_frontier=256, time_limit=60)     # the whole search runs in C++
     st = sim.initial_state(); st = sim.step(st, hold)        # single steps; sim.view(st) -> Player fields
 
+This fallback builds only the low-level simulator. Input Align External additionally requires the
+project's CMake-built worker/branch.cpp adapter, selected with GDGEN_SIM_LIB. The shipped console loads
+its bundled DLL; the low-level automatic compiler is not a predictor setup command.
+
 Level preparation stays in Python (gdgen/sim/level.py); this module flattens the Level into C records. The
 shared library is compiled on first use (g++ / c++ / clang++, -O2 -ffp-contract=off) into gdgen/sim/core/build/
 (or $GDGEN_SIM_BUILD), keyed by the source hash, so editing gdsim.cpp rebuilds it. tests/test_fast_sim.py checks
@@ -26,7 +30,7 @@ from .search import SearchResult
 
 CORE_DIR = Path(__file__).parent / "core"
 SOURCE = CORE_DIR / "gdsim.cpp"
-ABI_VERSION = 2
+ABI_VERSION = 3
 
 MODES = ["cube", "ship", "ball", "ufo", "wave", "robot", "spider", "swing"]
 MODE_INDEX = {m: i for i, m in enumerate(MODES)}
@@ -124,13 +128,24 @@ def library() -> ctypes.CDLL:
                                  p32, p32], None),
         "gd_level_free": ([vp], None),
         "gd_initial": ([vp], vp), "gd_step": ([vp, vp, i32], vp), "gd_state_free": ([vp], None),
-        "gd_state_view": ([vp, vp, ctypes.POINTER(StateView)], i32),
+        "gd_state_view": ([vp, vp, ctypes.POINTER(StateView), i32], i32),
+        "gd_state_list": ([vp, vp, i32, vp, i32], i32),
         "gd_find_path": ([vp, dbl, i32, i32, i32, dbl, i32, ctypes.POINTER(SearchOut),
                           ctypes.POINTER(ctypes.c_uint8), i32], i32),
         "gd_unsupported": ([vp, ctypes.c_char_p, i32], i32),
     }
+    try:
+        abi = lib.gd_abi_version
+        abi.argtypes, abi.restype = [], i32
+        if abi() != ABI_VERSION:
+            raise RuntimeError("simulator core ABI mismatch: rebuild the project with CMake")
+    except AttributeError as error:
+        raise RuntimeError("simulator core missing ABI export") from error
     for name, (args, res) in sig.items():
-        fn = getattr(lib, name)
+        try:
+            fn = getattr(lib, name)
+        except AttributeError as error:
+            raise RuntimeError(f"simulator core missing export: {name}") from error
         fn.argtypes, fn.restype = args, res
     if lib.gd_abi_version() != ABI_VERSION:
         raise RuntimeError("simulator core ABI mismatch: rebuild gdsim.cpp")
@@ -193,10 +208,10 @@ def _obj_record(o, level: Level) -> ObjRec:
 class FastState:
     """An opaque C++ player state; FastSimulator.view() turns it into Player fields."""
 
-    __slots__ = ("_h", "_lib")
+    __slots__ = ("_h", "_lib", "_owner")
 
-    def __init__(self, handle, lib):
-        self._h, self._lib = handle, lib
+    def __init__(self, handle, lib, owner):
+        self._h, self._lib, self._owner = handle, lib, owner
 
     def __del__(self):
         if self._h:
@@ -247,10 +262,12 @@ class FastSimulator:
     # ---- the Simulator interface
 
     def initial_state(self) -> FastState:
-        return FastState(self._lib.gd_initial(self._h), self._lib)
+        return FastState(self._lib.gd_initial(self._h), self._lib, self)
 
     def step(self, state: FastState, hold: bool) -> FastState:
-        return FastState(self._lib.gd_step(self._h, state._h, int(bool(hold))), self._lib)
+        if state._owner is not self:
+            raise ValueError("State belongs to a different simulator")
+        return FastState(self._lib.gd_step(self._h, state._h, int(bool(hold))), self._lib, self)
 
     @property
     def unsupported(self) -> dict[str, float]:
@@ -279,11 +296,12 @@ class FastSimulator:
 
     # ---- inspection
 
-    def view(self, state: FastState) -> dict:
+    def view(self, state: FastState, *, include_lists: bool = True) -> dict:
         """The state as Player field values (same names and Python types as gdgen.sim.physics.Player)."""
+        if state._owner is not self:
+            raise ValueError("State belongs to a different simulator")
         v = StateView()
-        if self._lib.gd_state_view(self._h, state._h, ctypes.byref(v)):
-            raise OverflowError("state lists exceed the view's fixed capacity")
+        overflow = self._lib.gd_state_view(self._h, state._h, ctypes.byref(v), int(include_lists))
         d = {n: getattr(v, n) for n in _VIEW_DOUBLES + _VIEW_INTS}
         out = {n: d[n] for n in ("x", "y", "prev_x", "prev_y", "y_vel", "speed", "robot_boost", "gravity_mod",
                                  "spider_tp_time", "dash_slope", "time", "last_flip_time", "last_mode_change_time",
@@ -298,6 +316,21 @@ class FastSimulator:
         out["activated"] = frozenset(v.activated[: v.n_activated])
         out["speed_log"] = tuple((int(v.speed_log[3 * i]), v.speed_log[3 * i + 1], v.speed_log[3 * i + 2])
                                  for i in range(v.n_speed_log))
+        if overflow:
+            def read_list(kind, ctype, stride=1):
+                count = self._lib.gd_state_list(self._h, state._h, kind, None, 0)
+                if count < 0: raise RuntimeError("Invalid state list")
+                values = (ctype * (count * stride))()
+                copied = self._lib.gd_state_list(self._h, state._h, kind, values, count)
+                if copied != count: raise RuntimeError("State changed during inspection")
+                return values
+            out["touched_rings"] = tuple(read_list(0, ctypes.c_int32))
+            out["activated"] = frozenset(read_list(1, ctypes.c_int32))
+            values = read_list(2, ctypes.c_double, 3)
+            out["speed_log"] = tuple((int(values[i]),values[i+1],values[i+2]) for i in range(0,len(values),3))
+        if not include_lists:
+            for name in ("touched_rings", "activated", "speed_log"):
+                del out[name]
         return out
 
 
