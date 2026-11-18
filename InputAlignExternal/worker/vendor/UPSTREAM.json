@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/kholkink/gd-levelgen",
+  "commit": "9496709eadd22fc3a130f89043169c17da4d5b9c",
+  "license": "MIT",
+  "files": [
+    "gdgen/__init__.py",
+    "gdgen/objects.py",
+    "gdgen/levelstring.py",
+    "gdgen/sim/__init__.py",
+    "gdgen/sim/physics.py",
+    "gdgen/sim/collide.py",
+    "gdgen/sim/level.py",
+    "gdgen/sim/triggers.py",
+    "gdgen/sim/search.py",
+    "gdgen/sim/fast.py",
+    "gdgen/sim/core/gdsim.cpp",
+    "gdgen/data/objects_2.2081.json"
+  ],
+  "modifications": []
+}
